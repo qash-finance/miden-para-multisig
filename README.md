@@ -6,8 +6,6 @@ A decentralized multisig wallet application built on the **Miden blockchain** wi
 
 https://github.com/user-attachments/assets/demo.mp4
 
-> **Note:** To add a demo video, drag and drop your `demo.mp4` file directly into the GitHub issue/PR editor or README edit box. GitHub will upload it and generate a proper `user-attachments` URL that renders inline.
-
 ## Overview
 
 Para Multisig enables multiple signers to collaboratively manage and execute transactions with customizable signature thresholds (M-of-N). The application consists of a Rust backend server that interfaces with the Miden blockchain and a React frontend that integrates with Para's embedded wallet system.

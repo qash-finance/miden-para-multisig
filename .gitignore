@@ -1,0 +1,33 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Rust build artifacts
+target/
+server/target/
+
+# Miden client data
+*.sqlite
+*.sqlite3
+*.db
+server/store.sqlite3
+
+# Cargo
+server/.cargo/
+
+# Claude
+.claude/

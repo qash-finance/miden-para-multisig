@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/.pnpm/@getpara+core-components@2.0.0-alpha.73/node_modules/@getpara/core-components/dist/esm/src/constants.ts"],
+  "sourcesContent": ["import { Theme } from './interface.js';\n\nexport const MOBILE_SIZE = 480;\n\nexport const DEFAULT_THEME: Theme = {\n  foregroundColor: '#141414',\n  backgroundColor: '#FFFFFF',\n};\n\nexport const COLOR_MIXES = [0, 0.04, 0.08, 0.16, 0.32, 0.48, 0.64, 0.8, 0.96];\n\nexport const UTILITY_COLORS: { red: string; yellow: string; green: string } = {\n  red: 'rgba(240, 68, 56, 1)',\n  yellow: 'rgba(251, 188, 4, 1)',\n  green: 'rgba(52, 168, 83, 1)',\n};\n\nexport const DEFAULT_Z_INDICES = {\n  modalNoOverlay: 0,\n  appBar: 10000,\n  overlay: 10001,\n  drawer: 10004,\n  modal: 10005,\n  popover: 10006,\n};\n"],
+  "mappings": ";IAEa,cAAc;IAEd,gBAAuB;EAClC,iBAAiB;EACjB,iBAAiB;;IAGN,cAAc,CAAC,GAAG,MAAM,MAAM,MAAM,MAAM,MAAM,MAAM,KAAK,IAAI;IAE/D,iBAAiE;EAC5E,KAAK;EACL,QAAQ;EACR,OAAO;;IAGI,oBAAoB;EAC/B,gBAAgB;EAChB,QAAQ;EACR,SAAS;EACT,QAAQ;EACR,OAAO;EACP,SAAS;;",
+  "names": []
+}

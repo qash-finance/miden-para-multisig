@@ -31,3 +31,6 @@ server/.cargo/
 
 # Claude
 .claude/
+
+# Vite cache
+.vite/

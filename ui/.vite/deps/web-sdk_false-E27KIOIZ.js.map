@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["optional-peer-dep:__vite-optional-peer-dep:@farcaster/miniapp-sdk:@getpara/web-sdk:false"],
-  "sourcesContent": ["module.exports = {};throw new Error(`Could not resolve \"@farcaster/miniapp-sdk\" imported by \"@getpara/web-sdk\". Is it installed?`)"],
-  "mappings": ";;;;;AAAA;AAAA;AAAA,WAAO,UAAU,CAAC;AAAE,UAAM,IAAI,MAAM,6FAA6F;AAAA;AAAA;",
-  "names": []
-}

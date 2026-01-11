@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/@reown+appkit-ui@1.7.8_@react-native-async-storage+async-storage@1.24.0_react-native@0._8d2677c6f211a52961ebaa9803e80c3f/node_modules/@reown/appkit-ui/src/assets/svg/arrow-left.ts"],
-  "sourcesContent": [null],
-  "mappings": ";;;;;;AAEO,IAAM,eAAe;;;;;;;;",
-  "names": []
-}

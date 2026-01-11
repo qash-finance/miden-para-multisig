@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../node_modules/.pnpm/@getpara+core-components@2.0.0-alpha.73/node_modules/@getpara/core-components/dist/esm/src/components/cpsl-info-box/cpsl-info-box.scss", "../../node_modules/.pnpm/@getpara+core-components@2.0.0-alpha.73/node_modules/@getpara/core-components/dist/esm/src/components/cpsl-info-box/cpsl-info-box.tsx"],
-  "sourcesContent": ["@import '../../themes/capsule.globals';\n\n:host {\n  --box-border-radius: var(--cpsl-border-radius-info-box);\n  --box-padding-top: 16px;\n  --box-padding-bottom: 16px;\n  --box-padding-start: 16px;\n  --box-padding-end: 16px;\n  --box-border-width: 1px;\n}\n\n.info-box-container {\n  @include border-radius(var(--input-border-radius));\n  @include padding(var(--box-padding-top), var(--box-padding-end), var(--box-padding-bottom), var(--box-padding-start));\n\n  display: flex;\n  background: var(--cpsl-color-background-4);\n  border-radius: var(--box-border-radius);\n}\n", "import { Component, Host, h } from '@stencil/core';\n\n@Component({\n  tag: 'cpsl-info-box',\n  styleUrl: 'cpsl-info-box.scss',\n  shadow: true,\n})\nexport class CpslInfoBox {\n  render() {\n    return (\n      <Host>\n        <div class=\"info-box-container\">\n          <slot></slot>\n        </div>\n      </Host>\n    );\n  }\n}\n"],
-  "mappings": ";;;;;;;;AAAA,IAAM,iBAAiB;AACvB,IAAA,oBAAe;ICMF,cAAW,MAAA;;;;EACtB,SAAM;AACJ,WACE,EAAC,MAAI,EAAA,KAAA,2CAAA,GACH,EAAA,OAAA,EAAA,KAAA,4CAAK,OAAM,qBAAoB,GAC7B,EAAA,QAAA,EAAA,KAAA,2CAAA,CAAA,CAAa,CACT;;;;",
-  "names": []
-}

@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["optional-peer-dep:__vite-optional-peer-dep:@farcaster/mini-app-solana:@getpara/solana-wallet-connectors:false"],
-  "sourcesContent": ["module.exports = {};throw new Error(`Could not resolve \"@farcaster/mini-app-solana\" imported by \"@getpara/solana-wallet-connectors\". Is it installed?`)"],
-  "mappings": ";;;;;AAAA;AAAA;AAAA,WAAO,UAAU,CAAC;AAAE,UAAM,IAAI,MAAM,kHAAkH;AAAA;AAAA;",
-  "names": []
-}

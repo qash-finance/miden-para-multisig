@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["optional-peer-dep:__vite-optional-peer-dep:@farcaster/miniapp-wagmi-connector:@getpara/evm-wallet-connectors:false"],
-  "sourcesContent": ["module.exports = {};throw new Error(`Could not resolve \"@farcaster/miniapp-wagmi-connector\" imported by \"@getpara/evm-wallet-connectors\". Is it installed?`)"],
-  "mappings": ";;;;;AAAA;AAAA;AAAA,WAAO,UAAU,CAAC;AAAE,UAAM,IAAI,MAAM,uHAAuH;AAAA;AAAA;",
-  "names": []
-}

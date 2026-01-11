@@ -4,7 +4,7 @@ A decentralized multisig wallet application built on the **Miden blockchain** wi
 
 ## Demo
 
-https://github.com/user-attachments/assets/demo.mp4
+https://drive.google.com/file/d/16zimFWzY9WZ9mBdhalKoozWxJvPYKIN7/view?usp=sharing
 
 ## Overview
 

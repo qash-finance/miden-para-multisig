@@ -1,132 +1,162 @@
-// API client for communicating with the multisig server
+// API client for communicating with qash-server (TypeScript backend)
+// qash-server acts as a gateway to the Rust Miden server
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:3001";
+// Default to qash-server port (4001) or use VITE_API_URL for development
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:4001";
+
+// For testing, you can use a default company ID (update this with your actual company ID)
+const DEFAULT_COMPANY_ID = 1;
 
 // ============================================================================
-// Types matching server API
+// Types matching qash-server API (camelCase)
 // ============================================================================
 
 export interface CreateMultisigRequest {
+  publicKeys: string[];  // Commitment hashes (32 bytes hex)
   threshold: number;
-  /** Commitment hashes (32 bytes hex, from evmPkToCommitment) */
-  public_keys: string[];
-  /** Original uncompressed public keys (65 bytes hex, starting with 04) */
-  original_public_keys: string[];
+  companyId: number;
 }
 
 export interface CreateMultisigResponse {
-  account_id: string;
-  block_number: number;
+  id: number;
+  uuid: string;
+  accountId: string;
+  publicKeys: string[];
+  threshold: number;
+  companyId: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ServerAccount {
-  account_id: string;
-  approvers: string[];
+  id: number;
+  uuid: string;
+  accountId: string;
+  publicKeys: string[];
   threshold: number;
-  created_at: number;
-  /** Original uncompressed public keys (65 bytes hex) for matching with user wallets */
-  original_public_keys: string[];
-}
-
-export interface ListAccountsResponse {
-  accounts: ServerAccount[];
+  companyId: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AssetInfo {
-  faucet_id: string;
+  faucetId: string;
   amount: number;
 }
 
 export interface NoteInfo {
-  note_id: string;
+  noteId: string;
   assets: AssetInfo[];
   sender: string | null;
-  note_type: string;
+  noteType: string;
 }
 
 export interface GetNotesResponse {
   notes: NoteInfo[];
 }
 
-// Create consume proposal request/response (multisig - requires signing)
 export interface CreateConsumeProposalRequest {
+  accountId: string;
   description: string;
-  note_ids: string[];
+  noteIds: string[];
 }
 
-// Create send proposal request/response
 export interface CreateSendProposalRequest {
+  accountId: string;
   description: string;
-  recipient_id: string;
-  faucet_id: string;
+  recipientId: string;
+  faucetId: string;
   amount: number;
 }
 
 export interface ProposeTransactionResponse {
-  proposal_id: string;
-  summary_commitment: string;
-  status: string;
+  id: number;
+  uuid: string;
+  accountId: string;
+  description: string;
+  proposalType: "CONSUME" | "SEND";
+  summaryCommitment: string;
+  summaryBytesHex: string;
+  requestBytesHex: string;
+  status: "PENDING" | "READY" | "EXECUTED" | "FAILED";
+  signaturesCount: number;
+  threshold: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SignatureInfo {
-  approver_index: number;
-  signed: boolean;
+  id: number;
+  uuid: string;
+  proposalId: number;
+  approverIndex: number;
+  approverPublicKey: string;
+  signatureHex: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProposalDetail {
-  proposal_id: string;
-  account_id: string;
+  id: number;
+  uuid: string;
+  accountId: string;
   description: string;
-  summary_commitment: string;
-  /** The transaction summary bytes (hex-encoded) that need to be signed */
-  summary_bytes_hex: string;
-  status: string;
-  note_ids: string[];
+  proposalType: "CONSUME" | "SEND";
+  summaryCommitment: string;
+  summaryBytesHex: string;
+  requestBytesHex: string;
+  noteIds: string[];
+  recipientId?: string;
+  faucetId?: string;
+  amount?: string;
+  status: "PENDING" | "READY" | "EXECUTED" | "FAILED";
+  transactionId?: string;
   signatures: SignatureInfo[];
   threshold: number;
-  created_at: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProposalSummary {
-  proposal_id: string;
+  id: number;
+  uuid: string;
   description: string;
-  status: string;
-  signatures_count: number;
+  status: "PENDING" | "READY" | "EXECUTED" | "FAILED";
+  signaturesCount: number;
   threshold: number;
-  created_at: number;
-}
-
-export interface ListProposalsResponse {
-  proposals: ProposalSummary[];
+  createdAt: string;
 }
 
 export interface SubmitSignatureRequest {
-  approver_index: number;
-  approver_public_key: string;
-  /** Hex-encoded serialized signature (from fromHexSig) */
-  signature_hex: string;
+  approverIndex: number;
+  approverPublicKey: string;
+  signatureHex: string;
 }
 
 export interface SubmitSignatureResponse {
-  success: boolean;
-  signatures_count: number;
-  threshold: number;
-  ready_to_execute: boolean;
+  id: number;
+  uuid: string;
+  proposalId: number;
+  approverIndex: number;
+  approverPublicKey: string;
+  signatureHex: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExecuteTransactionResponse {
   success: boolean;
-  transaction_id: string | null;
+  transactionId: string | null;
   error: string | null;
 }
 
 export interface HealthResponse {
   status: string;
-  sync_height: number;
+  syncHeight?: number;
 }
 
 export interface AccountBalanceInfo {
-  faucet_id: string;
+  faucetId: string;
   amount: number;
 }
 
@@ -159,6 +189,8 @@ async function fetchApi<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
+      // Add Bearer token if available (for production with authentication)
+      // "Authorization": `Bearer ${getAuthToken()}`,
       ...options?.headers,
     },
   });
@@ -175,7 +207,7 @@ async function fetchApi<T>(
 }
 
 // ============================================================================
-// API Methods
+// API Methods - Updated for qash-server endpoints
 // ============================================================================
 
 export const api = {
@@ -188,37 +220,37 @@ export const api = {
   async createMultisig(
     threshold: number,
     commitments: string[],
-    originalPublicKeys: string[]
+    _originalPublicKeys: string[] // Not used in qash-server API
   ): Promise<CreateMultisigResponse> {
-    return fetchApi<CreateMultisigResponse>("/multisig", {
+    return fetchApi<CreateMultisigResponse>("/multisig/accounts", {
       method: "POST",
       body: JSON.stringify({
+        publicKeys: commitments,
         threshold,
-        public_keys: commitments,
-        original_public_keys: originalPublicKeys,
+        companyId: DEFAULT_COMPANY_ID, // TODO: Get from user context
       } as CreateMultisigRequest),
     });
   },
 
   async listAccounts(): Promise<ServerAccount[]> {
-    const response = await fetchApi<ListAccountsResponse>("/multisig");
-    return response.accounts;
+    // qash-server requires company ID to list accounts
+    return fetchApi<ServerAccount[]>(`/multisig/companies/${DEFAULT_COMPANY_ID}/accounts`);
   },
 
   async getAccount(accountId: string): Promise<ServerAccount> {
-    return fetchApi<ServerAccount>(`/multisig/${accountId}`);
+    return fetchApi<ServerAccount>(`/multisig/accounts/${accountId}`);
   },
 
   async getConsumableNotes(accountId: string): Promise<NoteInfo[]> {
     const response = await fetchApi<GetNotesResponse>(
-      `/multisig/${accountId}/notes`
+      `/multisig/accounts/${accountId}/notes`
     );
     return response.notes;
   },
 
   async getAccountBalances(accountId: string): Promise<AccountBalanceInfo[]> {
     const response = await fetchApi<GetBalancesResponse>(
-      `/multisig/${accountId}/balances`
+      `/multisig/accounts/${accountId}/balances`
     );
     return response.balances;
   },
@@ -229,11 +261,12 @@ export const api = {
     description: string,
     noteIds: string[]
   ): Promise<ProposeTransactionResponse> {
-    return fetchApi<ProposeTransactionResponse>(`/multisig/${accountId}/consume`, {
+    return fetchApi<ProposeTransactionResponse>(`/multisig/proposals/consume`, {
       method: "POST",
       body: JSON.stringify({
+        accountId,
         description,
-        note_ids: noteIds,
+        noteIds,
       } as CreateConsumeProposalRequest),
     });
   },
@@ -247,13 +280,14 @@ export const api = {
     amount: number
   ): Promise<ProposeTransactionResponse> {
     return fetchApi<ProposeTransactionResponse>(
-      `/multisig/${accountId}/send`,
+      `/multisig/proposals/send`,
       {
         method: "POST",
         body: JSON.stringify({
+          accountId,
           description,
-          recipient_id: recipientId,
-          faucet_id: faucetId,
+          recipientId,
+          faucetId,
           amount,
         } as CreateSendProposalRequest),
       }
@@ -261,14 +295,13 @@ export const api = {
   },
 
   async listProposals(accountId: string): Promise<ProposalSummary[]> {
-    const response = await fetchApi<ListProposalsResponse>(
-      `/multisig/${accountId}/proposals`
+    return fetchApi<ProposalSummary[]>(
+      `/multisig/accounts/${accountId}/proposals`
     );
-    return response.proposals;
   },
 
   async getProposal(proposalId: string): Promise<ProposalDetail> {
-    return fetchApi<ProposalDetail>(`/proposals/${proposalId}`);
+    return fetchApi<ProposalDetail>(`/multisig/proposals/${proposalId}`);
   },
 
   async submitSignature(
@@ -277,12 +310,12 @@ export const api = {
     approverPublicKey: string,
     signatureHex: string
   ): Promise<SubmitSignatureResponse> {
-    return fetchApi<SubmitSignatureResponse>(`/proposals/${proposalId}/sign`, {
+    return fetchApi<SubmitSignatureResponse>(`/multisig/proposals/${proposalId}/signatures`, {
       method: "POST",
       body: JSON.stringify({
-        approver_index: approverIndex,
-        approver_public_key: approverPublicKey,
-        signature_hex: signatureHex,
+        approverIndex,
+        approverPublicKey,
+        signatureHex,
       } as SubmitSignatureRequest),
     });
   },
@@ -291,11 +324,18 @@ export const api = {
     proposalId: string
   ): Promise<ExecuteTransactionResponse> {
     return fetchApi<ExecuteTransactionResponse>(
-      `/proposals/${proposalId}/execute`,
+      `/multisig/proposals/${proposalId}/execute`,
       {
         method: "POST",
       }
     );
+  },
+
+  // Test/Development endpoints
+  async createTestCompany(): Promise<{ message: string; company: { id: number; companyName: string } }> {
+    return fetchApi(`/multisig/test/create-company`, {
+      method: "POST",
+    });
   },
 };
 

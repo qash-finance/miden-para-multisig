@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::client::create_client;
 use crate::multisig::MultisigOps;
-use crate::storage::{ConsumableNoteInfo, MultisigStorage};
+use crate::storage::ConsumableNoteInfo;
 
 /// Serializable note info for client communication
 #[derive(Debug, Clone)]
@@ -211,10 +211,10 @@ impl ClientHandle {
 }
 
 /// Application state that holds the handle to the Miden client
+/// This is stateless - all data persistence is handled by the main qash-server
 #[derive(Clone)]
 pub struct AppState {
     pub client: ClientHandle,
-    pub storage: MultisigStorage,
 }
 
 impl AppState {
@@ -277,7 +277,6 @@ impl AppState {
 
         Ok(Self {
             client: ClientHandle { sender: tx },
-            storage: MultisigStorage::new(),
         })
     }
 }

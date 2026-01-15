@@ -45,7 +45,8 @@ async fn main() -> anyhow::Result<()> {
         .with_state(app_state);
 
     // Start the server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3001));
+    // Port 4001 is used for Miden multisig server (VM port range 4000-4999)
+    let addr = SocketAddr::from(([0, 0, 0, 0], 4010));
     tracing::info!("Server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

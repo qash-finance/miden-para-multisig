@@ -33,6 +33,7 @@ import { getBalance } from "./lib/getBalance";
 import { send } from "./lib/send";
 import { fromHexSig, bytesToHex, hexToBytes } from "./lib/utils";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { api } from "./lib/api";
 import { useState, useEffect } from "react";
 import type { MultisigWallet, MultisigProposal } from "./lib/types";
 
@@ -62,6 +63,16 @@ function App() {
     canSign,
     deleteWalletMetadata,
   } = useMultisig();
+
+  // Filter wallets to only show ones where the current user is a signer
+  const userMultisigWallets = wallet?.publicKey
+    ? multisigWallets.filter((msWallet) => {
+        const normalizedUserKey = wallet.publicKey.toLowerCase().replace(/^0x/, "");
+        return msWallet.originalPublicKeys.some(
+          (pk) => pk.toLowerCase().replace(/^0x/, "") === normalizedUserKey
+        );
+      })
+    : [];
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [progress, setProgress] = useState<MintAndConsumeProgress | null>(null);
@@ -217,8 +228,90 @@ function App() {
     }
   };
 
+  // Helper: Generate signature for a summary commitment
+  const generateSignature = async (summaryCommitment: string) => {
+    if (!wallet?.publicKey || !paraClient) {
+      return null;
+    }
+
+    try {
+      // Remove 0x prefix if present, then convert to bytes and hash with keccak256
+      const commitmentHex = summaryCommitment.replace(/^0x/, "");
+      const commitmentBytes = hexToBytes(commitmentHex);
+      const hashedMessage = keccak_256(commitmentBytes);
+
+      // Convert keccak hash to base64 for Para SDK
+      const messageBase64 = btoa(String.fromCharCode(...hashedMessage));
+
+      // Sign with Para popup
+      const signResult = await paraClient.signMessage({
+        walletId: wallet.id,
+        messageBase64,
+      });
+
+      // Check if signing was successful
+      if (!("signature" in signResult) || !signResult.signature) {
+        return null;
+      }
+
+      // Convert Para hex signature to Miden serialized format
+      const serializedSig = fromHexSig(signResult.signature as string);
+
+      // Convert to hex string for backend
+      return bytesToHex(serializedSig);
+    } catch (err) {
+      console.error("Failed to generate signature:", err);
+      return null;
+    }
+  };
+
   const handleCreateConsumeProposal = async (description: string, noteIds: string[]) => {
-    if (!selectedMultisigWallet) return;
+    if (!selectedMultisigWallet || !wallet?.publicKey) return;
+
+    // Check if current user can sign
+    const normalizedUserKey = wallet.publicKey.toLowerCase().replace(/^0x/, "");
+    const approverIndex = selectedMultisigWallet.originalPublicKeys.findIndex(
+      (pk) => pk.toLowerCase().replace(/^0x/, "") === normalizedUserKey
+    );
+
+    // If user is an approver, get their signature
+    let autoSignInfo = undefined;
+    if (approverIndex !== -1) {
+      // First create the proposal to get the summary commitment
+      const proposalId = await createConsumeProposal(
+        selectedMultisigWallet.accountId,
+        description,
+        noteIds
+      );
+
+      // Get the created proposal to obtain summary commitment
+      const proposal = await api.getProposal(proposalId);
+
+      // Generate signature
+      const signatureHex = await generateSignature(proposal.summaryCommitment);
+
+      if (signatureHex) {
+        autoSignInfo = {
+          approverIndex,
+          approverPublicKey: wallet.publicKey,
+          signatureHex,
+        };
+
+        // Submit signature
+        await submitSignature(
+          proposalId,
+          approverIndex,
+          wallet.publicKey,
+          signatureHex
+        );
+
+        // Refresh proposals to show updated signature status
+        await fetchProposals(selectedMultisigWallet.accountId);
+      }
+      return;
+    }
+
+    // User is not an approver, just create the proposal
     await createConsumeProposal(
       selectedMultisigWallet.accountId,
       description,
@@ -232,7 +325,54 @@ function App() {
     faucetId: string,
     amount: number
   ) => {
-    if (!selectedMultisigWallet) return;
+    if (!selectedMultisigWallet || !wallet?.publicKey) return;
+
+    // Check if current user can sign
+    const normalizedUserKey = wallet.publicKey.toLowerCase().replace(/^0x/, "");
+    const approverIndex = selectedMultisigWallet.originalPublicKeys.findIndex(
+      (pk) => pk.toLowerCase().replace(/^0x/, "") === normalizedUserKey
+    );
+
+    // If user is an approver, get their signature
+    let autoSignInfo = undefined;
+    if (approverIndex !== -1) {
+      // First create the proposal to get the summary commitment
+      const proposalId = await createSendProposal(
+        selectedMultisigWallet.accountId,
+        description,
+        recipientId,
+        faucetId,
+        amount
+      );
+
+      // Get the created proposal to obtain summary commitment
+      const proposal = await api.getProposal(proposalId);
+
+      // Generate signature
+      const signatureHex = await generateSignature(proposal.summaryCommitment);
+
+      if (signatureHex) {
+        autoSignInfo = {
+          approverIndex,
+          approverPublicKey: wallet.publicKey,
+          signatureHex,
+        };
+
+        // Submit signature
+        await submitSignature(
+          proposalId,
+          approverIndex,
+          wallet.publicKey,
+          signatureHex
+        );
+
+        // Refresh proposals to show updated signature status
+        await fetchProposals(selectedMultisigWallet.accountId);
+      }
+      return;
+    }
+
+    // User is not an approver, just create the proposal
     await createSendProposal(
       selectedMultisigWallet.accountId,
       description,
@@ -315,6 +455,16 @@ function App() {
       walletId: wallet.id,
     });
     console.log("result", result, "public key", wallet.publicKey);
+  };
+
+  const handleCreateTestCompany = async () => {
+    try {
+      const { api } = await import("./lib/api");
+      const result = await api.createTestCompany();
+      alert(`${result.message}\nCompany ID: ${result.company.id}\nName: ${result.company.companyName}`);
+    } catch (err) {
+      alert(`Failed to create test company: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
   };
 
   return (
@@ -411,14 +561,13 @@ function App() {
           <div className="space-y-3">
             <div className="flex gap-2">
               <Button
-                onClick={() => handleParaSignTransaction()}
+                onClick={() => handleCreateTestCompany()}
                 variant="outline"
-                size="lg"
-                className="flex-1 cursor-pointer"
-                disabled={!isConnected}
+                size="sm"
+                className="flex-1 cursor-pointer bg-yellow-50 hover:bg-yellow-100 border-yellow-300 text-yellow-800"
               >
                 <Plus className="w-4 h-4" />
-                Test Para Sign
+                Create Test Company
               </Button>
               <Button
                 onClick={() => fetchWallets()}
@@ -440,9 +589,9 @@ function App() {
               Create Multisig Wallet
             </Button>
 
-            {multisigWallets.length > 0 ? (
+            {userMultisigWallets.length > 0 ? (
               <div className="grid gap-3">
-                {multisigWallets.map((msWallet) => (
+                {userMultisigWallets.map((msWallet) => (
                   <MultisigWalletCard
                     key={msWallet.accountId}
                     wallet={msWallet}
@@ -459,9 +608,15 @@ function App() {
             ) : (
               <div className="text-center py-6 bg-gray-50 border border-dashed border-gray-200">
                 <Users className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                <p className="text-sm text-gray-500">No multisig wallets yet</p>
+                <p className="text-sm text-gray-500">
+                  {wallet?.publicKey
+                    ? "No multisig wallets found for your account"
+                    : "Connect your wallet to see your multisig wallets"}
+                </p>
                 <p className="text-xs text-gray-400 mt-1">
-                  Create one to manage shared assets with multiple signers
+                  {wallet?.publicKey
+                    ? "Create one to manage shared assets with multiple signers"
+                    : "You'll only see wallets where you are a signer"}
                 </p>
               </div>
             )}

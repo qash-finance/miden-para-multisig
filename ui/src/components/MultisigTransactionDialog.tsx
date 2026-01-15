@@ -107,11 +107,11 @@ export function MultisigTransactionDialog({
 
   // Filter proposals by status
   const pendingProposals = proposals.filter(
-    (p) => p.status === "Pending" || p.status === "Ready"
+    (p) => p.status === "PENDING" || p.status === "READY" || p.status === "Pending" || p.status === "Ready"
   );
 
   const executedProposals = proposals.filter(
-    (p) => p.status === "Executed" || p.status === "Failed"
+    (p) => p.status === "EXECUTED" || p.status === "FAILED" || p.status === "Executed" || p.status === "Failed"
   );
 
   // Get unique faucets from consumable notes for display
@@ -271,7 +271,7 @@ export function MultisigTransactionDialog({
   if (!isOpen) return null;
 
   const getStatusBadge = (status: ProposalStatus, sigCount: number, threshold: number) => {
-    if (status === "Ready") {
+    if (status === "READY" || status === "Ready") {
       return (
         <span className="text-xs bg-green-100 text-green-800 px-2 py-1 flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" />
@@ -279,7 +279,7 @@ export function MultisigTransactionDialog({
         </span>
       );
     }
-    if (status === "Executed") {
+    if (status === "EXECUTED" || status === "Executed") {
       return (
         <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" />
@@ -287,7 +287,7 @@ export function MultisigTransactionDialog({
         </span>
       );
     }
-    if (status === "Failed") {
+    if (status === "FAILED" || status === "Failed") {
       return (
         <span className="text-xs bg-red-100 text-red-800 px-2 py-1 flex items-center gap-1">
           <AlertCircle className="w-3 h-3" />
@@ -486,7 +486,7 @@ export function MultisigTransactionDialog({
                         </Button>
                       )}
 
-                      {proposal.status === "Ready" && (
+                      {(proposal.status === "READY" || proposal.status === "Ready") && (
                         <Button
                           size="sm"
                           onClick={() => handleExecute(proposal)}

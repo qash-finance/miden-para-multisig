@@ -12,22 +12,22 @@ pub fn create_routes() -> Router<AppState> {
         .route("/", get(health::root))
         .route("/health", get(health::health_check))
 
-        // Multisig account endpoints
-        .route("/multisig", get(multisig::list_accounts))
-        .route("/multisig", post(multisig::create_multisig))
-        .route("/multisig/{account_id}", get(multisig::get_account))
+        // STATELESS Miden client endpoints - no data persistence
+        // All account/proposal management is handled by the main server (qash-server)
+
+        // Create multisig account via Miden client
+        .route("/multisig/create-account", post(multisig::create_multisig))
+
+        // Get consumable notes for an account
         .route("/multisig/{account_id}/notes", get(multisig::get_consumable_notes))
+
+        // Get account balances
         .route("/multisig/{account_id}/balances", get(multisig::get_account_balances))
 
-        // Transaction proposal endpoints (account-scoped) - both require multisig signing
-        .route("/multisig/{account_id}/consume", post(multisig::create_consume_proposal))
-        .route("/multisig/{account_id}/send", post(multisig::create_send_proposal))
+        // Create transaction proposals (returns summary for signing)
+        .route("/multisig/consume-proposal", post(multisig::create_consume_proposal))
+        .route("/multisig/send-proposal", post(multisig::create_send_proposal))
 
-        // Proposal endpoints (account-scoped)
-        .route("/multisig/{account_id}/proposals", get(multisig::list_proposals))
-
-        // Proposal endpoints (by proposal ID)
-        .route("/proposals/{proposal_id}", get(multisig::get_proposal))
-        .route("/proposals/{proposal_id}/sign", post(multisig::submit_signature))
-        .route("/proposals/{proposal_id}/execute", post(multisig::execute_transaction))
+        // Execute multisig transaction with signatures
+        .route("/multisig/execute", post(multisig::execute_transaction))
 }

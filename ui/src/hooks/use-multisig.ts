@@ -55,8 +55,11 @@ export function useMultisig() {
       const metadata = loadWalletMetadata();
 
       return serverAccounts.map((account) => {
-        const meta = metadata.find((m) => m.accountId === account.account_id);
-        const signers: MultisigSigner[] = account.original_public_keys.map(
+        const meta = metadata.find((m) => m.accountId === account.accountId);
+
+        // qash-server returns publicKeys (commitment hashes), not original public keys
+        // For now, use publicKeys for both fields since we don't store original keys
+        const signers: MultisigSigner[] = (account.publicKeys || []).map(
           (pk, index) => ({
             index,
             publicKey: pk,
@@ -65,12 +68,12 @@ export function useMultisig() {
         );
 
         return {
-          accountId: account.account_id,
-          approvers: account.approvers,
+          accountId: account.accountId,
+          approvers: account.publicKeys || [], // Use publicKeys as approvers
           threshold: account.threshold,
-          createdAt: account.created_at,
-          originalPublicKeys: account.original_public_keys,
-          name: meta?.name || `Multisig ${account.account_id.slice(0, 8)}...`,
+          createdAt: account.createdAt ? new Date(account.createdAt).getTime() : Date.now(),
+          originalPublicKeys: account.publicKeys || [], // Use publicKeys for now
+          name: meta?.name || `Multisig ${account.accountId.slice(0, 8)}...`,
           signers,
         };
       });
@@ -102,29 +105,33 @@ export function useMultisig() {
     async (accountId: string): Promise<MultisigProposal[]> => {
       try {
         const serverProposals = await api.listProposals(accountId);
+        console.log('[fetchProposals] Server proposals:', serverProposals);
 
         // Fetch full details for each proposal to get signature info
         const detailedProposals = await Promise.all(
-          serverProposals.map(async (p) => {
-            const detail = await api.getProposal(p.proposal_id);
+          serverProposals.map(async (p: any) => {
+            const detail = await api.getProposal(String(p.id));
+            console.log('[fetchProposals] Detail for proposal', p.id, ':', detail);
+
             return {
-              proposalId: detail.proposal_id,
-              accountId: detail.account_id,
+              proposalId: String(detail.id),
+              accountId: detail.accountId,
               description: detail.description,
-              summaryCommitment: detail.summary_commitment,
-              summaryBytesHex: detail.summary_bytes_hex,
+              summaryCommitment: detail.summaryCommitment,
+              summaryBytesHex: detail.summaryBytesHex,
               status: detail.status as ProposalStatus,
-              noteIds: detail.note_ids,
-              signatures: detail.signatures.map((s) => ({
-                approverIndex: s.approver_index,
-                signed: s.signed,
+              noteIds: detail.noteIds || [],
+              signatures: (detail.signatures || []).map((s: any) => ({
+                approverIndex: s.approverIndex,
+                signed: !!s.signatureHex, // signed if signature exists
               })),
               threshold: detail.threshold,
-              createdAt: detail.created_at,
+              createdAt: new Date(detail.createdAt).getTime(),
             } as MultisigProposal;
           })
         );
 
+        console.log('[fetchProposals] Detailed proposals:', detailedProposals);
         setProposals((prev) => ({ ...prev, [accountId]: detailedProposals }));
         return detailedProposals;
       } catch (err) {
@@ -140,14 +147,14 @@ export function useMultisig() {
     async (accountId: string): Promise<ConsumableNote[]> => {
       try {
         const notes = await api.getConsumableNotes(accountId);
-        const mapped: ConsumableNote[] = notes.map((n) => ({
-          noteId: n.note_id,
-          assets: n.assets.map((a) => ({
-            faucetId: a.faucet_id,
+        const mapped: ConsumableNote[] = notes.map((n: any) => ({
+          noteId: n.noteId || n.note_id,
+          assets: (n.assets || []).map((a: any) => ({
+            faucetId: a.faucetId || a.faucet_id,
             amount: a.amount,
           })),
           sender: n.sender,
-          noteType: n.note_type,
+          noteType: n.noteType || n.note_type,
         }));
 
         setConsumableNotes((prev) => ({ ...prev, [accountId]: mapped }));
@@ -165,8 +172,8 @@ export function useMultisig() {
     async (accountId: string): Promise<AccountBalance[]> => {
       try {
         const serverBalances = await api.getAccountBalances(accountId);
-        const mapped: AccountBalance[] = serverBalances.map((b) => ({
-          faucetId: b.faucet_id,
+        const mapped: AccountBalance[] = serverBalances.map((b: any) => ({
+          faucetId: b.faucetId || b.faucet_id,
           amount: b.amount,
         }));
 
@@ -212,7 +219,7 @@ export function useMultisig() {
         });
 
         metadata.push({
-          accountId: response.account_id,
+          accountId: response.accountId,
           name,
           signerNames,
         });
@@ -221,7 +228,7 @@ export function useMultisig() {
         // Refresh wallets list
         const updated = await fetchWallets();
         const newWallet = updated.find(
-          (w) => w.accountId === response.account_id
+          (w) => w.accountId === response.accountId
         );
 
         if (!newWallet) {
@@ -246,7 +253,12 @@ export function useMultisig() {
     async (
       accountId: string,
       description: string,
-      noteIds: string[]
+      noteIds: string[],
+      autoSign?: {
+        approverIndex: number;
+        approverPublicKey: string;
+        signatureHex: string;
+      }
     ): Promise<string> => {
       try {
         const response = await api.createConsumeProposal(
@@ -255,13 +267,30 @@ export function useMultisig() {
           noteIds
         );
 
+        const proposalId = String(response.id);
+
+        // If auto-sign info provided, submit signature immediately
+        if (autoSign) {
+          try {
+            await api.submitSignature(
+              proposalId,
+              autoSign.approverIndex,
+              autoSign.approverPublicKey,
+              autoSign.signatureHex
+            );
+          } catch (signErr) {
+            console.error("Failed to auto-sign proposal:", signErr);
+            // Don't fail the whole operation if auto-sign fails
+          }
+        }
+
         // Refresh proposals and notes
         await Promise.all([
           fetchProposals(accountId),
           fetchConsumableNotes(accountId),
         ]);
 
-        return response.proposal_id;
+        return proposalId;
       } catch (err) {
         const message =
           err instanceof Error
@@ -281,7 +310,12 @@ export function useMultisig() {
       description: string,
       recipientId: string,
       faucetId: string,
-      amount: number
+      amount: number,
+      autoSign?: {
+        approverIndex: number;
+        approverPublicKey: string;
+        signatureHex: string;
+      }
     ): Promise<string> => {
       try {
         const response = await api.createSendProposal(
@@ -292,10 +326,27 @@ export function useMultisig() {
           amount
         );
 
+        const proposalId = String(response.id);
+
+        // If auto-sign info provided, submit signature immediately
+        if (autoSign) {
+          try {
+            await api.submitSignature(
+              proposalId,
+              autoSign.approverIndex,
+              autoSign.approverPublicKey,
+              autoSign.signatureHex
+            );
+          } catch (signErr) {
+            console.error("Failed to auto-sign proposal:", signErr);
+            // Don't fail the whole operation if auto-sign fails
+          }
+        }
+
         // Refresh proposals
         await fetchProposals(accountId);
 
-        return response.proposal_id;
+        return proposalId;
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to create send proposal";
@@ -328,12 +379,13 @@ export function useMultisig() {
 
         // Refresh the proposal's account proposals
         const proposal = await api.getProposal(proposalId);
-        await fetchProposals(proposal.account_id);
+        await fetchProposals(proposal.accountId);
 
+        // qash-server returns the updated proposal with signatures array
         return {
-          signaturesCount: response.signatures_count,
-          threshold: response.threshold,
-          readyToExecute: response.ready_to_execute,
+          signaturesCount: proposal.signatures.length,
+          threshold: proposal.threshold,
+          readyToExecute: proposal.status === "READY",
         };
       } catch (err) {
         const message =
@@ -359,11 +411,11 @@ export function useMultisig() {
 
         // Refresh the proposal's account proposals
         const proposal = await api.getProposal(proposalId);
-        await fetchProposals(proposal.account_id);
+        await fetchProposals(proposal.accountId);
 
         return {
           success: response.success,
-          transactionId: response.transaction_id || undefined,
+          transactionId: response.transactionId || undefined,
           error: response.error || undefined,
         };
       } catch (err) {
@@ -425,8 +477,8 @@ export function useMultisig() {
         (s) => s.approverIndex === approverIndex && s.signed
       );
 
-      // Check if proposal is still pending
-      const isPending = proposal.status === "Pending";
+      // Check if proposal is still pending (accept both formats)
+      const isPending = proposal.status === "PENDING" || proposal.status === "Pending";
 
       return { canSign: isPending && !alreadySigned, approverIndex };
     },

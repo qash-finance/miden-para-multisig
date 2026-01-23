@@ -62,6 +62,18 @@ export interface CreateSendProposalRequest {
   amount: number;
 }
 
+// Batch payout types
+export interface BatchPayoutRecipient {
+  recipient_id: string;
+  faucet_id: string;
+  amount: number;
+}
+
+export interface CreateBatchSendProposalRequest {
+  description: string;
+  recipients: BatchPayoutRecipient[];
+}
+
 export interface ProposeTransactionResponse {
   proposal_id: string;
   summary_commitment: string;
@@ -256,6 +268,24 @@ export const api = {
           faucet_id: faucetId,
           amount,
         } as CreateSendProposalRequest),
+      }
+    );
+  },
+
+  // Create batch send proposal (multiple recipients in one transaction)
+  async createBatchSendProposal(
+    accountId: string,
+    description: string,
+    recipients: BatchPayoutRecipient[]
+  ): Promise<ProposeTransactionResponse> {
+    return fetchApi<ProposeTransactionResponse>(
+      `/multisig/${accountId}/batch-send`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          description,
+          recipients,
+        } as CreateBatchSendProposalRequest),
       }
     );
   },

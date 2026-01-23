@@ -54,6 +54,7 @@ function App() {
     createMultisigWallet,
     createConsumeProposal,
     createSendProposal,
+    createBatchSendProposal,
     submitSignature,
     executeTransaction,
     getWalletProposals,
@@ -217,13 +218,74 @@ function App() {
     }
   };
 
+  // Helper function to sign a proposal given its ID and summary commitment
+  const signProposalWithCommitment = async (
+    proposalId: string,
+    summaryCommitment: string,
+    approverIndex: number
+  ) => {
+    if (!wallet?.publicKey || !paraClient) {
+      throw new Error("Wallet not connected");
+    }
+
+    // Remove 0x prefix if present, then convert to bytes and hash with keccak256
+    const commitmentHex = summaryCommitment.replace(/^0x/, "");
+    const commitmentBytes = hexToBytes(commitmentHex);
+    const hashedMessage = keccak_256(commitmentBytes);
+
+    // Convert keccak hash to base64 for Para SDK
+    const messageBase64 = btoa(String.fromCharCode(...hashedMessage));
+
+    // Sign with Para popup
+    const signResult = await paraClient.signMessage({
+      walletId: wallet.id,
+      messageBase64,
+    });
+
+    // Check if signing was successful
+    if (!("signature" in signResult) || !signResult.signature) {
+      throw new Error("Signing failed or was rejected");
+    }
+
+    // Convert Para hex signature to Miden serialized format
+    const serializedSig = fromHexSig(signResult.signature as string);
+    const signatureHex = bytesToHex(serializedSig);
+
+    // Submit signature
+    await submitSignature(
+      proposalId,
+      approverIndex,
+      wallet.publicKey,
+      signatureHex
+    );
+  };
+
+  // Get the approver index for the current user in a wallet
+  const getApproverIndex = (msWallet: MultisigWallet): number => {
+    if (!wallet?.publicKey) return -1;
+    const normalizedUserKey = wallet.publicKey.toLowerCase().replace(/^0x/, "");
+    return msWallet.originalPublicKeys.findIndex(
+      (pk) => pk.toLowerCase().replace(/^0x/, "") === normalizedUserKey
+    );
+  };
+
   const handleCreateConsumeProposal = async (description: string, noteIds: string[]) => {
     if (!selectedMultisigWallet) return;
-    await createConsumeProposal(
+
+    // Create the proposal and get summary commitment
+    const { proposalId, summaryCommitment } = await createConsumeProposal(
       selectedMultisigWallet.accountId,
       description,
       noteIds
     );
+
+    // Auto-sign if the user is an approver
+    const approverIndex = getApproverIndex(selectedMultisigWallet);
+    if (approverIndex !== -1 && wallet?.publicKey) {
+      await signProposalWithCommitment(proposalId, summaryCommitment, approverIndex);
+      // Refresh proposals to show updated signature status
+      await fetchProposals(selectedMultisigWallet.accountId);
+    }
   };
 
   const handleCreateSendProposal = async (
@@ -233,13 +295,45 @@ function App() {
     amount: number
   ) => {
     if (!selectedMultisigWallet) return;
-    await createSendProposal(
+
+    // Create the proposal and get summary commitment
+    const { proposalId, summaryCommitment } = await createSendProposal(
       selectedMultisigWallet.accountId,
       description,
       recipientId,
       faucetId,
       amount
     );
+
+    // Auto-sign if the user is an approver
+    const approverIndex = getApproverIndex(selectedMultisigWallet);
+    if (approverIndex !== -1 && wallet?.publicKey) {
+      await signProposalWithCommitment(proposalId, summaryCommitment, approverIndex);
+      // Refresh proposals to show updated signature status
+      await fetchProposals(selectedMultisigWallet.accountId);
+    }
+  };
+
+  const handleCreateBatchSendProposal = async (
+    description: string,
+    recipients: Array<{ recipientId: string; faucetId: string; amount: number }>
+  ) => {
+    if (!selectedMultisigWallet) return;
+
+    // Create the proposal and get summary commitment
+    const { proposalId, summaryCommitment } = await createBatchSendProposal(
+      selectedMultisigWallet.accountId,
+      description,
+      recipients
+    );
+
+    // Auto-sign if the user is an approver
+    const approverIndex = getApproverIndex(selectedMultisigWallet);
+    if (approverIndex !== -1 && wallet?.publicKey) {
+      await signProposalWithCommitment(proposalId, summaryCommitment, approverIndex);
+      // Refresh proposals to show updated signature status
+      await fetchProposals(selectedMultisigWallet.accountId);
+    }
   };
 
   const handleSignProposal = async (proposal: MultisigProposal, approverIndex: number) => {
@@ -566,6 +660,7 @@ function App() {
           currentUserPublicKey={wallet?.publicKey}
           onCreateConsumeProposal={handleCreateConsumeProposal}
           onCreateSendProposal={handleCreateSendProposal}
+          onCreateBatchSendProposal={handleCreateBatchSendProposal}
           onSign={handleSignProposal}
           onExecute={handleExecuteProposal}
           onRefresh={handleRefreshDialog}

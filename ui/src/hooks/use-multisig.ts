@@ -242,12 +242,13 @@ export function useMultisig() {
   );
 
   // Create a consume notes proposal (for multisig - requires signing)
+  // Returns full response with summary_commitment for immediate signing
   const createConsumeProposal = useCallback(
     async (
       accountId: string,
       description: string,
       noteIds: string[]
-    ): Promise<string> => {
+    ): Promise<{ proposalId: string; summaryCommitment: string }> => {
       try {
         const response = await api.createConsumeProposal(
           accountId,
@@ -261,7 +262,10 @@ export function useMultisig() {
           fetchConsumableNotes(accountId),
         ]);
 
-        return response.proposal_id;
+        return {
+          proposalId: response.proposal_id,
+          summaryCommitment: response.summary_commitment,
+        };
       } catch (err) {
         const message =
           err instanceof Error
@@ -275,6 +279,7 @@ export function useMultisig() {
   );
 
   // Create a send transaction proposal (for multisig)
+  // Returns full response with summary_commitment for immediate signing
   const createSendProposal = useCallback(
     async (
       accountId: string,
@@ -282,7 +287,7 @@ export function useMultisig() {
       recipientId: string,
       faucetId: string,
       amount: number
-    ): Promise<string> => {
+    ): Promise<{ proposalId: string; summaryCommitment: string }> => {
       try {
         const response = await api.createSendProposal(
           accountId,
@@ -295,10 +300,49 @@ export function useMultisig() {
         // Refresh proposals
         await fetchProposals(accountId);
 
-        return response.proposal_id;
+        return {
+          proposalId: response.proposal_id,
+          summaryCommitment: response.summary_commitment,
+        };
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Failed to create send proposal";
+        setError(message);
+        throw err;
+      }
+    },
+    [fetchProposals]
+  );
+
+  // Create a batch send proposal (multiple recipients in one transaction)
+  // Returns full response with summary_commitment for immediate signing
+  const createBatchSendProposal = useCallback(
+    async (
+      accountId: string,
+      description: string,
+      recipients: Array<{ recipientId: string; faucetId: string; amount: number }>
+    ): Promise<{ proposalId: string; summaryCommitment: string }> => {
+      try {
+        const response = await api.createBatchSendProposal(
+          accountId,
+          description,
+          recipients.map((r) => ({
+            recipient_id: r.recipientId,
+            faucet_id: r.faucetId,
+            amount: r.amount,
+          }))
+        );
+
+        // Refresh proposals
+        await fetchProposals(accountId);
+
+        return {
+          proposalId: response.proposal_id,
+          summaryCommitment: response.summary_commitment,
+        };
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to create batch send proposal";
         setError(message);
         throw err;
       }
@@ -524,6 +568,7 @@ export function useMultisig() {
     createMultisigWallet,
     createConsumeProposal,
     createSendProposal,
+    createBatchSendProposal,
     submitSignature,
     executeTransaction,
 

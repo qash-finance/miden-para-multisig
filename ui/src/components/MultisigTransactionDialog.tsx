@@ -12,6 +12,9 @@ import {
   FileText,
   Inbox,
   Download,
+  Users,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import type {
   MultisigWallet,
@@ -20,6 +23,13 @@ import type {
   ProposalStatus,
   AccountBalance,
 } from "../lib/types";
+
+// Batch payout recipient type
+interface BatchRecipient {
+  recipientId: string;
+  faucetId: string;
+  amount: string;
+}
 
 interface MultisigTransactionDialogProps {
   isOpen: boolean;
@@ -36,6 +46,10 @@ interface MultisigTransactionDialogProps {
     faucetId: string,
     amount: number
   ) => Promise<void>;
+  onCreateBatchSendProposal: (
+    description: string,
+    recipients: Array<{ recipientId: string; faucetId: string; amount: number }>
+  ) => Promise<void>;
   onSign: (proposal: MultisigProposal, approverIndex: number) => Promise<void>;
   onExecute: (proposal: MultisigProposal) => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -45,7 +59,7 @@ interface MultisigTransactionDialogProps {
 // Cache type for signing ability
 type SigningAbility = Record<string, { canSign: boolean; approverIndex: number }>;
 
-type TabType = "proposals" | "notes" | "send";
+type TabType = "proposals" | "notes" | "send" | "batch-send";
 
 export function MultisigTransactionDialog({
   isOpen,
@@ -57,6 +71,7 @@ export function MultisigTransactionDialog({
   currentUserPublicKey,
   onCreateConsumeProposal,
   onCreateSendProposal,
+  onCreateBatchSendProposal,
   onSign,
   onExecute,
   onRefresh,
@@ -73,6 +88,13 @@ export function MultisigTransactionDialog({
   // Notes selection for consume
   const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
   const [consumeDescription, setConsumeDescription] = useState("");
+
+  // Batch send form state
+  const [batchDescription, setBatchDescription] = useState("");
+  const [batchRecipients, setBatchRecipients] = useState<BatchRecipient[]>([
+    { recipientId: "", faucetId: "", amount: "" }
+  ]);
+  const [isBatchLoading, setIsBatchLoading] = useState(false);
 
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -233,6 +255,71 @@ export function MultisigTransactionDialog({
     }
   };
 
+  // Batch send handlers
+  const addBatchRecipient = () => {
+    setBatchRecipients([...batchRecipients, { recipientId: "", faucetId: "", amount: "" }]);
+  };
+
+  const removeBatchRecipient = (index: number) => {
+    if (batchRecipients.length > 1) {
+      setBatchRecipients(batchRecipients.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateBatchRecipient = (index: number, field: keyof BatchRecipient, value: string) => {
+    const updated = [...batchRecipients];
+    updated[index] = { ...updated[index], [field]: value };
+    setBatchRecipients(updated);
+  };
+
+  const handleCreateBatchSendProposal = async () => {
+    setError(null);
+
+    if (!batchDescription.trim()) {
+      setError("Please enter a description");
+      return;
+    }
+
+    // Validate recipients
+    const validRecipients = batchRecipients.filter(
+      (r) => r.recipientId.trim() && r.faucetId.trim() && r.amount.trim()
+    );
+
+    if (validRecipients.length === 0) {
+      setError("Please add at least one valid recipient");
+      return;
+    }
+
+    // Validate amounts
+    for (let i = 0; i < validRecipients.length; i++) {
+      const amount = parseFloat(validRecipients[i].amount);
+      if (isNaN(amount) || amount <= 0) {
+        setError(`Invalid amount for recipient ${i + 1}`);
+        return;
+      }
+    }
+
+    setIsBatchLoading(true);
+    try {
+      await onCreateBatchSendProposal(
+        batchDescription,
+        validRecipients.map((r) => ({
+          recipientId: r.recipientId.trim(),
+          faucetId: r.faucetId.trim(),
+          amount: parseFloat(r.amount),
+        }))
+      );
+      // Reset form
+      setBatchDescription("");
+      setBatchRecipients([{ recipientId: "", faucetId: "", amount: "" }]);
+      setActiveTab("proposals");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create batch proposal");
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
   const toggleNoteSelection = (noteId: string) => {
     setSelectedNotes((prev) =>
       prev.includes(noteId)
@@ -256,6 +343,8 @@ export function MultisigTransactionDialog({
     setSelectedNotes([]);
     setSelectedFaucet("");
     setConsumeDescription("");
+    setBatchDescription("");
+    setBatchRecipients([{ recipientId: "", faucetId: "", amount: "" }]);
     setError(null);
     setActiveTab("proposals");
     onClose();
@@ -384,6 +473,14 @@ export function MultisigTransactionDialog({
           >
             <Send className="w-4 h-4" />
             Send
+          </Button>
+          <Button
+            variant={activeTab === "batch-send" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("batch-send")}
+          >
+            <Users className="w-4 h-4" />
+            Batch Payout
           </Button>
         </div>
 
@@ -731,6 +828,138 @@ export function MultisigTransactionDialog({
                 <>
                   <Send className="w-4 h-4" />
                   Create Send Proposal
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Batch Send Tab */}
+        {activeTab === "batch-send" && (
+          <div className="space-y-4">
+            <div className="bg-purple-50 border border-purple-200 p-3">
+              <p className="text-sm text-purple-800">
+                <strong>Batch Payout:</strong> Send to multiple recipients in a single transaction. This is more efficient than creating individual send proposals. Requires {wallet.threshold} of {wallet.signers.length} signatures.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium block mb-1">
+                Description *
+              </label>
+              <Input
+                value={batchDescription}
+                onChange={(e) => setBatchDescription(e.target.value)}
+                placeholder="What is this batch payout for?"
+                disabled={isBatchLoading}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">
+                  Recipients ({batchRecipients.length})
+                </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addBatchRecipient}
+                  disabled={isBatchLoading}
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Recipient
+                </Button>
+              </div>
+
+              <div className="space-y-3 max-h-64 overflow-y-auto border p-3">
+                {batchRecipients.map((recipient, index) => (
+                  <div
+                    key={index}
+                    className="bg-gray-50 p-3 space-y-2 relative"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-600">
+                        Recipient {index + 1}
+                      </span>
+                      {batchRecipients.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeBatchRecipient(index)}
+                          disabled={isBatchLoading}
+                          className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+
+                    <div>
+                      <Input
+                        value={recipient.recipientId}
+                        onChange={(e) => updateBatchRecipient(index, "recipientId", e.target.value)}
+                        placeholder="Recipient address..."
+                        disabled={isBatchLoading}
+                        className="text-sm"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Input
+                          type="number"
+                          value={recipient.amount}
+                          onChange={(e) => updateBatchRecipient(index, "amount", e.target.value)}
+                          placeholder="Amount"
+                          disabled={isBatchLoading}
+                          className="text-sm"
+                        />
+                      </div>
+                      <div>
+                        {availableFaucets.length > 0 ? (
+                          <select
+                            className="flex h-10 w-full border border-input bg-background px-3 py-2 text-sm"
+                            value={recipient.faucetId}
+                            onChange={(e) => updateBatchRecipient(index, "faucetId", e.target.value)}
+                            disabled={isBatchLoading}
+                          >
+                            <option value="">Select faucet</option>
+                            {availableFaucets.map((faucetId) => (
+                              <option key={faucetId} value={faucetId}>
+                                {faucetId.slice(0, 12)}...
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Input
+                            value={recipient.faucetId}
+                            onChange={(e) => updateBatchRecipient(index, "faucetId", e.target.value)}
+                            placeholder="Faucet ID"
+                            disabled={isBatchLoading}
+                            className="text-sm"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              onClick={handleCreateBatchSendProposal}
+              className="w-full"
+              disabled={isBatchLoading || !batchDescription.trim() || batchRecipients.every(r => !r.recipientId.trim())}
+            >
+              {isBatchLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Creating Batch Proposal...
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4" />
+                  Create Batch Payout Proposal
                 </>
               )}
             </Button>

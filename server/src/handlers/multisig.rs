@@ -76,6 +76,21 @@ pub struct CreateSendProposalRequest {
     pub amount: u64,
 }
 
+/// A single recipient in a batch payout
+#[derive(Deserialize, Clone)]
+pub struct BatchPayoutRecipient {
+    pub recipient_id: String,
+    pub faucet_id: String,
+    pub amount: u64,
+}
+
+/// Request to create a batch payout proposal (multiple recipients in one transaction)
+#[derive(Deserialize)]
+pub struct CreateBatchSendProposalRequest {
+    pub description: String,
+    pub recipients: Vec<BatchPayoutRecipient>,
+}
+
 #[derive(Serialize)]
 pub struct ProposeTransactionResponse {
     pub proposal_id: String,
@@ -377,6 +392,67 @@ pub async fn create_send_proposal(
         status: ProposalStatus::Pending,
         created_at: now,
         note_ids: vec![], // Send proposals don't consume specific notes
+    };
+
+    state.storage.create_proposal(proposal).await;
+
+    Ok(Json(ProposeTransactionResponse {
+        proposal_id,
+        summary_commitment: result.summary_commitment,
+        status: "pending".to_string(),
+    }))
+}
+
+/// POST /multisig/:account_id/batch-send - Create a batch payout proposal (multiple recipients)
+pub async fn create_batch_send_proposal(
+    State(state): State<AppState>,
+    Path(account_id): Path<String>,
+    Json(payload): Json<CreateBatchSendProposalRequest>,
+) -> Result<Json<ProposeTransactionResponse>, StatusCode> {
+    // Verify account exists
+    let _account = state
+        .storage
+        .get_account(&account_id)
+        .await
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Validate we have at least one recipient
+    if payload.recipients.is_empty() {
+        tracing::error!("Batch send proposal has no recipients");
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Create the batch send proposal via client
+    let result = state
+        .client
+        .create_batch_send_proposal(
+            account_id.clone(),
+            payload.recipients,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create batch send proposal: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Generate proposal ID and store
+    let proposal_id = Uuid::new_v4().to_string();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let proposal = TransactionProposal {
+        proposal_id: proposal_id.clone(),
+        account_id: account_id.clone(),
+        description: payload.description,
+        summary_commitment: result.summary_commitment.clone(),
+        summary_bytes: result.summary_bytes,
+        request_bytes: result.request_bytes,
+        signatures: std::collections::HashMap::new(),
+        status: ProposalStatus::Pending,
+        created_at: now,
+        note_ids: vec![], // Batch send proposals don't consume specific notes
     };
 
     state.storage.create_proposal(proposal).await;

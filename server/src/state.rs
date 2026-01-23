@@ -53,6 +53,12 @@ pub enum ClientCommand {
         amount: u64,
         respond_to: oneshot::Sender<Result<ProposalResult, String>>,
     },
+    /// Create a batch send proposal (multiple recipients in one transaction)
+    CreateBatchSendProposal {
+        account_id: String,
+        recipients: Vec<crate::handlers::multisig::BatchPayoutRecipient>,
+        respond_to: oneshot::Sender<Result<ProposalResult, String>>,
+    },
     /// Execute a multisig transaction with collected signatures
     ExecuteMultisigTransaction {
         account_id: String,
@@ -164,6 +170,23 @@ impl ClientHandle {
                 recipient_id,
                 faucet_id,
                 amount,
+                respond_to: tx,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        rx.await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn create_batch_send_proposal(
+        &self,
+        account_id: String,
+        recipients: Vec<crate::handlers::multisig::BatchPayoutRecipient>,
+    ) -> Result<ProposalResult, String> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(ClientCommand::CreateBatchSendProposal {
+                account_id,
+                recipients,
                 respond_to: tx,
             })
             .await
@@ -353,6 +376,15 @@ async fn run_client_loop(
                     amount,
                 )
                 .await;
+                let _ = respond_to.send(result);
+            }
+            ClientCommand::CreateBatchSendProposal {
+                account_id,
+                recipients,
+                respond_to,
+            } => {
+                let result =
+                    create_batch_send_proposal_impl(&mut client, &account_id, recipients).await;
                 let _ = respond_to.send(result);
             }
             ClientCommand::ExecuteMultisigTransaction {
@@ -582,6 +614,7 @@ async fn create_send_proposal_impl(
     use miden_client::note::NoteType;
     use miden_client::transaction::{PaymentNoteDescription, TransactionRequestBuilder};
     use miden_objects::asset::FungibleAsset;
+    use miden_objects::utils::Serializable;
 
     tracing::debug!(
         "Creating send proposal: {} -> {} ({} from faucet {})",
@@ -621,22 +654,18 @@ async fn create_send_proposal_impl(
 
     match result {
         Ok(summary) => {
-            use miden_objects::utils::Serializable;
-
-            // Get summary commitment as hex string
             let commitment = summary.to_commitment();
-            let summary_commitment = format!(
-                "0x{}",
-                commitment
-                    .iter()
-                    .map(|f| format!("{:016x}", f.as_int()))
-                    .collect::<Vec<_>>()
-                    .join("")
-            );
+
+            let summary_commitment = commitment.to_hex();
 
             // Serialize using miden's native serialization
             let summary_bytes = summary.to_bytes();
             let request_bytes = tx_request.to_bytes();
+
+            tracing::info!(
+                "Consume proposal created with commitment: {}",
+                summary_commitment
+            );
 
             Ok(ProposalResult {
                 summary_commitment,
@@ -645,6 +674,100 @@ async fn create_send_proposal_impl(
             })
         }
         Err(e) => Err(format!("Failed to create proposal: {:?}", e)),
+    }
+}
+
+/// Implementation of creating a batch send proposal (multiple recipients in one transaction)
+async fn create_batch_send_proposal_impl(
+    client: &mut crate::client::Client,
+    account_id_str: &str,
+    recipients: Vec<crate::handlers::multisig::BatchPayoutRecipient>,
+) -> Result<ProposalResult, String> {
+    use miden_client::note::{NoteType, create_p2id_note};
+    use miden_client::transaction::{OutputNote, TransactionRequestBuilder};
+    use miden_objects::asset::FungibleAsset;
+    use miden_objects::utils::Serializable;
+
+    tracing::debug!(
+        "Creating batch send proposal for {} recipients from account {}",
+        recipients.len(),
+        account_id_str
+    );
+
+    let sender_id = parse_account_id(account_id_str)?;
+
+    // Sync state
+    client
+        .sync_state()
+        .await
+        .map_err(|e| format!("Failed to sync state: {}", e))?;
+
+    // Create P2ID notes for each recipient
+    let mut output_notes: Vec<OutputNote> = Vec::new();
+
+    for (idx, recipient) in recipients.iter().enumerate() {
+        let recipient_id = parse_account_id(&recipient.recipient_id)?;
+        let faucet_id = parse_account_id(&recipient.faucet_id)?;
+
+        // Create the fungible asset
+        let asset = FungibleAsset::new(faucet_id, recipient.amount)
+            .map_err(|e| format!("Failed to create asset for recipient {}: {:?}", idx, e))?;
+
+        // Create P2ID note for this recipient
+        let note = create_p2id_note(
+            sender_id,
+            recipient_id,
+            vec![asset.into()],
+            NoteType::Public,
+            Default::default(),
+            client.rng(),
+        )
+        .map_err(|e| format!("Failed to create P2ID note for recipient {}: {:?}", idx, e))?;
+
+        output_notes.push(OutputNote::Full(note));
+
+        tracing::debug!(
+            "Created P2ID note {} for recipient {} ({} to {})",
+            idx,
+            recipient.recipient_id,
+            recipient.amount,
+            recipient.faucet_id
+        );
+    }
+
+    // Build the transaction request with all output notes
+    let tx_request = TransactionRequestBuilder::new()
+        .own_output_notes(output_notes)
+        .build()
+        .map_err(|e| format!("Failed to build batch transaction request: {:?}", e))?;
+
+    // For multisig, we need to propose the transaction and get the summary
+    let result =
+        crate::multisig::MultisigOps::propose_transaction(client, sender_id, tx_request.clone())
+            .await;
+
+    match result {
+        Ok(summary) => {
+            let commitment = summary.to_commitment();
+
+            let summary_commitment = commitment.to_hex();
+
+            // Serialize using miden's native serialization
+            let summary_bytes = summary.to_bytes();
+            let request_bytes = tx_request.to_bytes();
+
+            tracing::info!(
+                "Consume proposal created with commitment: {}",
+                summary_commitment
+            );
+
+            Ok(ProposalResult {
+                summary_commitment,
+                summary_bytes,
+                request_bytes,
+            })
+        }
+        Err(e) => Err(format!("Failed to create batch send proposal: {:?}", e)),
     }
 }
 
@@ -721,7 +844,11 @@ async fn execute_multisig_transaction_impl(
     // Log public keys for debugging
     tracing::debug!("Received {} public keys", public_keys_hex.len());
     for (i, pk_hex) in public_keys_hex.iter().enumerate() {
-        tracing::debug!("Public key {} hex (first 20 chars): {}...", i, &pk_hex[..pk_hex.len().min(20)]);
+        tracing::debug!(
+            "Public key {} hex (first 20 chars): {}...",
+            i,
+            &pk_hex[..pk_hex.len().min(20)]
+        );
     }
 
     for i in 0..num_approvers as usize {
@@ -780,8 +907,7 @@ async fn execute_multisig_transaction_impl(
             if sig_bytes[0] != 1 {
                 return Err(format!(
                     "Invalid auth scheme prefix for approver {}: expected 1 (ECDSA), got {}",
-                    i,
-                    sig_bytes[0]
+                    i, sig_bytes[0]
                 ));
             }
 
@@ -792,7 +918,7 @@ async fn execute_multisig_transaction_impl(
                 "Raw ECDSA signature bytes for approver {} ({} bytes): r={:?}, s={:?}, v={}, padding={}",
                 i,
                 raw_sig_bytes.len(),
-                &raw_sig_bytes[0..8],  // First 8 bytes of r
+                &raw_sig_bytes[0..8],   // First 8 bytes of r
                 &raw_sig_bytes[32..40], // First 8 bytes of s
                 raw_sig_bytes[64],      // v
                 raw_sig_bytes[65]       // padding
@@ -803,8 +929,12 @@ async fn execute_multisig_transaction_impl(
             use miden_objects::crypto::dsa::ecdsa_k256_keccak::Signature as ObjectsEcdsaSignature;
             use miden_objects::utils::Deserializable;
 
-            let ecdsa_sig = ObjectsEcdsaSignature::read_from_bytes(raw_sig_bytes)
-                .map_err(|e| format!("Failed to parse ECDSA signature for approver {}: {:?}", i, e))?;
+            let ecdsa_sig = ObjectsEcdsaSignature::read_from_bytes(raw_sig_bytes).map_err(|e| {
+                format!(
+                    "Failed to parse ECDSA signature for approver {}: {:?}",
+                    i, e
+                )
+            })?;
 
             // Wrap in the Signature enum and prepare for the VM
             use miden_objects::account::auth::Signature;
@@ -920,7 +1050,11 @@ async fn get_account_balances_impl(
         })
         .collect();
 
-    tracing::debug!("Found {} assets for account {}", assets.len(), account_id_str);
+    tracing::debug!(
+        "Found {} assets for account {}",
+        assets.len(),
+        account_id_str
+    );
 
     Ok(assets)
 }

@@ -19,9 +19,10 @@ pub fn create_routes() -> Router<AppState> {
         .route("/multisig/{account_id}/notes", get(multisig::get_consumable_notes))
         .route("/multisig/{account_id}/balances", get(multisig::get_account_balances))
 
-        // Transaction proposal endpoints (account-scoped) - both require multisig signing
+        // Transaction proposal endpoints (account-scoped) - all require multisig signing
         .route("/multisig/{account_id}/consume", post(multisig::create_consume_proposal))
         .route("/multisig/{account_id}/send", post(multisig::create_send_proposal))
+        .route("/multisig/{account_id}/batch-send", post(multisig::create_batch_send_proposal))
 
         // Proposal endpoints (account-scoped)
         .route("/multisig/{account_id}/proposals", get(multisig::list_proposals))
